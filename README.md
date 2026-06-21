@@ -1,4 +1,4 @@
-Berikut adalah dokumen Product Requirements Document (PRD) LogBook.ID versi MVP 1.0 yang sudah utuh, lengkap, dan mengintegrasikan sistem *Google Login Only* serta penyesuaian *database* dan *tech stack* tanpa ada bagian yang dikurangi.
+
 
 ---
 
