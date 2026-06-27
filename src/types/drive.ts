@@ -63,9 +63,6 @@ export function createTraceContext(traceId?: string): TraceContext {
 
 export interface UploadFileParams {
   trace: TraceContext;
-  accessToken: string;
-  /** Callback to attempt a token refresh (returns new token or null) */
-  refreshToken: () => Promise<string | null>;
   fileBuffer: ArrayBuffer;
   fileName: string;
   mimeType: string;

@@ -201,9 +201,7 @@ export async function POST(request: NextRequest) {
     file.name,
     file.type,
     fileBuffer,
-    accessToken,
-    refreshTokenCallback
-  );
+    );
 
   if (!result.success) {
     trace.error("UPLOAD", `upload failed: ${result.error} (code=${result.code})`, { activityId, fileName: file.name });

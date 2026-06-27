@@ -21,8 +21,7 @@ export const authOptions: NextAuthOptions = {
           prompt: "consent",
           access_type: "offline",
           response_type: "code",
-          scope:
-            "openid email profile https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/documents",
+          scope: "openid email profile",
         },
       },
     }),
@@ -47,15 +46,11 @@ export const authOptions: NextAuthOptions = {
 
           // 2. Create or verify Drive root folder exists
           // This is idempotent — if folder exists, returns existing ID
-          const accessToken = account.access_token;
           const userEmail = user.email || "";
 
-          // Call Drive service to get or create user root folder
+          // Call Drive service to get or create user root folder (now uses Service Account internally)
           const trace = createTraceContext(`signin_${userEmail}`);
-          const noopRefresh = async () => null; // signIn has fresh token, no refresh needed
-          const driveFolderId = accessToken
-            ? await getOrCreateUserRootFolder(trace, accessToken, noopRefresh, userEmail)
-            : null;
+          const driveFolderId = await getOrCreateUserRootFolder(trace, userEmail);
 
           // 3. Handle user record in database
           if (!existingUser) {
@@ -117,75 +112,11 @@ export const authOptions: NextAuthOptions = {
       }
       return false;
     },
-    async jwt({ token, account }) {
-      // Initial sign in — save tokens from Google OAuth response
-      if (account) {
-        token.accessToken = account.access_token;
-        token.refreshToken = account.refresh_token;
-        token.accessTokenExpires = account.expires_in
-          ? Date.now() + (account.expires_in as number) * 1000
-          : undefined;
-        console.log("[NextAuth JWT] Token stored:", {
-          hasAccessToken: !!token.accessToken,
-          hasRefreshToken: !!token.refreshToken,
-          expiresIn: account.expires_in,
-          expiresAt: token.accessTokenExpires
-            ? new Date(token.accessTokenExpires).toISOString()
-            : "unknown",
-        });
-        return token;
-      }
-
-      // Subsequent calls — check if token is still valid
-      if (
-        token.accessTokenExpires &&
-        Date.now() < token.accessTokenExpires
-      ) {
-        console.log("[NextAuth JWT] Token still valid, reusing.");
-        return token;
-      }
-
-      // Token expired or expiring — attempt refresh
-      console.log("[NextAuth JWT] Token expired, attempting refresh...");
-      const refreshedToken = await refreshAccessToken(token);
-
-      // If refresh succeeded, use new token
-      if (refreshedToken.accessToken) {
-        console.log("[NextAuth JWT] Refresh successful.");
-        return refreshedToken;
-      }
-
-      // If refresh failed but we still have a stale token, return it
-      // so the API route can give a proper error message
-      if (token.accessToken) {
-        console.warn("[NextAuth JWT] Refresh FAILED, returning stale token.");
-        return token;
-      }
-
-      // No token at all — return as-is
+    async jwt({ token }) {
       return token;
     },
-    async session({ session, token }) {
-      const isExpired =
-        token.accessTokenExpires
-          ? Date.now() >= token.accessTokenExpires
-          : false;
-
-      console.log("[NextAuth Session] building session:", {
-        hasAccessToken: !!token.accessToken,
-        hasRefreshToken: !!token.refreshToken,
-        isExpired,
-        expiresAt: token.accessTokenExpires
-          ? new Date(token.accessTokenExpires).toISOString()
-          : "unknown",
-      });
-
-      return {
-        ...session,
-        accessToken: token.accessToken as string | undefined,
-        refreshToken: token.refreshToken as string | undefined,
-        accessTokenExpires: token.accessTokenExpires as number | undefined,
-      };
+    async session({ session }) {
+      return session;
     },
   },
 };

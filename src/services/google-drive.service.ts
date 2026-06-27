@@ -17,6 +17,7 @@
 
 import type { TraceContext, DriveError, UploadFileParams, UploadFileResult } from "@/types/drive";
 import { ICache, CACHE_PREFIX } from "@/services/cache/ICache";
+import { getServiceAccountToken } from "@/lib/google-service-account";
 import { defaultCache } from "@/services/cache/MapCache";
 
 const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
@@ -73,11 +74,10 @@ async function driveFetch(
     method: string;
     headers: Record<string, string>;
     body?: BodyInit;
-    accessToken: string;
-    refreshToken: () => Promise<string | null>;
   }
 ): Promise<{ ok: boolean; status: number; data: unknown }> {
-  let currentToken = options.accessToken;
+  let currentToken = await getServiceAccountToken();
+  if (!currentToken) return { ok: false, status: 401, data: { code: "TOKEN_MISSING" } };
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const start = performance.now();
@@ -113,7 +113,7 @@ async function driveFetch(
     // 401 → token refresh ONCE (not counted as retry)
     if (response.status === 401 && attempt === 0) {
       trace.warn(step, "Drive returned 401 — attempting token refresh...");
-      const newToken = await options.refreshToken();
+      const newToken = await getServiceAccountToken();
       if (newToken) {
         trace.log(step, "token refreshed, retrying with new token...");
         currentToken = newToken;
@@ -150,8 +150,6 @@ async function driveFetch(
 // ─────────────────────────────────────
 async function createDriveFolder(
   trace: TraceContext,
-  accessToken: string,
-  refreshTokenFn: () => Promise<string | null>,
   name: string,
   parentId?: string
 ): Promise<string | null> {
@@ -162,8 +160,6 @@ async function createDriveFolder(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    accessToken,
-    refreshToken: refreshTokenFn,
   });
 
   if (!result.ok) {
@@ -181,8 +177,6 @@ async function createDriveFolder(
 
 async function findDriveFolder(
   trace: TraceContext,
-  accessToken: string,
-  refreshTokenFn: () => Promise<string | null>,
   name: string,
   parentId?: string
 ): Promise<string | null> {
@@ -191,7 +185,7 @@ async function findDriveFolder(
 
   const url = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,parents,name)&pageSize=1`;
   const result = await driveFetch(trace, "FIND_FOLDER", "findFolder", url, {
-    method: "GET", headers: {}, accessToken, refreshToken: refreshTokenFn,
+    method: "GET", headers: {},
   });
 
   if (!result.ok) {
@@ -213,14 +207,12 @@ async function findDriveFolder(
  */
 async function findDriveFolderGlobal(
   trace: TraceContext,
-  accessToken: string,
-  refreshTokenFn: () => Promise<string | null>,
   name: string
 ): Promise<string | null> {
   const q = `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
   const url = `${DRIVE_API_BASE}/files?q=${encodeURIComponent(q)}&fields=files(id,name,parents)&pageSize=10`;
   const result = await driveFetch(trace, "FIND_FOLDER_GLOBAL", "findFolderGlobal", url, {
-    method: "GET", headers: {}, accessToken, refreshToken: refreshTokenFn,
+    method: "GET", headers: {},
   });
   if (!result.ok) return null;
   const data = result.data as { files?: Array<{ id: string; name: string; parents?: string[] }> } | null;
@@ -236,22 +228,22 @@ async function findDriveFolderGlobal(
 //  VERIFICATION — EXPORTED
 // ─────────────────────────────────────
 export async function getDriveFileMeta(
-  trace: TraceContext, accessToken: string, refreshTokenFn: () => Promise<string | null>, fileId: string
+  trace: TraceContext, fileId: string
 ): Promise<{ id: string; name: string; parents: string[]; webViewLink: string; mimeType: string } | null> {
   const url = `${DRIVE_API_BASE}/files/${fileId}?fields=id,name,parents,webViewLink,mimeType`;
   const result = await driveFetch(trace, "FILE_META", "getFileMeta", url, {
-    method: "GET", headers: {}, accessToken, refreshToken: refreshTokenFn,
+    method: "GET", headers: {},
   });
   if (!result.ok) return null;
   return result.data as { id: string; name: string; parents: string[]; webViewLink: string; mimeType: string } | null;
 }
 
 export async function verifyDriveFolderId(
-  trace: TraceContext, accessToken: string, refreshTokenFn: () => Promise<string | null>, folderId: string
+  trace: TraceContext, folderId: string
 ): Promise<{ id: string; name: string; parents: string[] } | null> {
   const url = `${DRIVE_API_BASE}/files/${folderId}?fields=id,name,mimeType,parents`;
   const result = await driveFetch(trace, "VERIFY_FOLDER", "verifyFolder", url, {
-    method: "GET", headers: {}, accessToken, refreshToken: refreshTokenFn,
+    method: "GET", headers: {},
   });
   if (!result.ok) return null;
   const data = result.data as { id: string; name: string; mimeType: string; parents: string[] } | null;
@@ -263,12 +255,12 @@ export async function verifyDriveFolderId(
 }
 
 export async function listDriveFolderContents(
-  trace: TraceContext, accessToken: string, refreshTokenFn: () => Promise<string | null>, folderId: string, pageSize = 100
+  trace: TraceContext, folderId: string, pageSize = 100
 ): Promise<Array<{ id: string; name: string; mimeType: string; parents: string[] }>> {
   const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
   const url = `${DRIVE_API_BASE}/files?q=${q}&fields=files(id,name,mimeType,parents,webViewLink)&pageSize=${pageSize}&orderBy=name`;
   const result = await driveFetch(trace, "LIST_FOLDER", "listFolder", url, {
-    method: "GET", headers: {}, accessToken, refreshToken: refreshTokenFn,
+    method: "GET", headers: {},
   });
   if (!result.ok) return [];
   const data = result.data as { files?: Array<{ id: string; name: string; mimeType: string; parents: string[] }> } | null;
@@ -276,23 +268,23 @@ export async function listDriveFolderContents(
 }
 
 export async function verifyAndRepairUserRootFolder(
-  trace: TraceContext, accessToken: string, refreshTokenFn: () => Promise<string | null>,
+  trace: TraceContext,
   storedFolderId: string | null, userEmail: string
 ): Promise<{ valid: boolean; folderId: string | null; repairNeeded: boolean; message: string }> {
   trace.log("VERIFY_ROOT", "checking root folder", { email: userEmail, storedId: storedFolderId });
 
   if (storedFolderId) {
-    const v = await verifyDriveFolderId(trace, accessToken, refreshTokenFn, storedFolderId);
+    const v = await verifyDriveFolderId(trace, storedFolderId);
     if (v) return { valid: true, folderId: storedFolderId, repairNeeded: false, message: "Folder ID valid" };
     trace.warn("VERIFY_ROOT", "stored id invalid, attempting repair...");
   }
 
-  let rootId = await findDriveFolder(trace, accessToken, refreshTokenFn, ROOT_FOLDER_NAME);
-  if (!rootId) rootId = await createDriveFolder(trace, accessToken, refreshTokenFn, ROOT_FOLDER_NAME);
+  let rootId = await findDriveFolder(trace, ROOT_FOLDER_NAME);
+  if (!rootId) rootId = await createDriveFolder(trace, ROOT_FOLDER_NAME);
   if (!rootId) return { valid: false, folderId: null, repairNeeded: true, message: "Tidak bisa membuat root folder" };
 
-  let userId = await findDriveFolder(trace, accessToken, refreshTokenFn, userEmail, rootId);
-  if (!userId) userId = await createDriveFolder(trace, accessToken, refreshTokenFn, userEmail, rootId);
+  let userId = await findDriveFolder(trace, userEmail, rootId);
+  if (!userId) userId = await createDriveFolder(trace, userEmail, rootId);
 
   if (!userId) return { valid: false, folderId: null, repairNeeded: true, message: "Tidak bisa membuat user folder" };
   trace.log("VERIFY_ROOT", "repair success", { newId: userId });
@@ -306,8 +298,6 @@ export async function verifyAndRepairUserRootFolder(
  */
 export async function deleteDriveFile(
   trace: TraceContext,
-  accessToken: string,
-  refreshTokenFn: () => Promise<string | null>,
   fileId: string
 ): Promise<boolean> {
   trace.log("DELETE_FILE", "attempting cleanup", { fileId });
@@ -315,8 +305,6 @@ export async function deleteDriveFile(
     const result = await driveFetch(trace, "DELETE_FILE", "deleteFile", `${DRIVE_API_BASE}/files/${fileId}`, {
       method: "DELETE",
       headers: {},
-      accessToken,
-      refreshToken: refreshTokenFn,
     });
     if (result.ok) {
       trace.log("DELETE_FILE", "cleanup success", { fileId });
@@ -331,14 +319,14 @@ export async function deleteDriveFile(
 }
 
 export async function buildFolderPathChain(
-  trace: TraceContext, accessToken: string, refreshTokenFn: () => Promise<string | null>, folderId: string
+  trace: TraceContext, folderId: string
 ): Promise<string[]> {
   const path: string[] = [];
   let currentId: string | null = folderId;
   while (currentId) {
     const url = `${DRIVE_API_BASE}/files/${currentId}?fields=id,name,parents`;
     const result = await driveFetch(trace, "PATH_CHAIN", "buildPath", url, {
-      method: "GET", headers: {}, accessToken, refreshToken: refreshTokenFn,
+      method: "GET", headers: {},
     });
     if (!result.ok) break;
     const data = result.data as { id: string; name: string; parents?: string[] } | null;
@@ -353,21 +341,21 @@ export async function buildFolderPathChain(
 //  USER ROOT FOLDER — EXPORTED
 // ─────────────────────────────────────
 export async function getOrCreateUserRootFolder(
-  trace: TraceContext, accessToken: string, refreshTokenFn: () => Promise<string | null>, userEmail: string
+  trace: TraceContext, userEmail: string
 ): Promise<string | null> {
-  let rootId = await findDriveFolder(trace, accessToken, refreshTokenFn, ROOT_FOLDER_NAME);
-  if (!rootId) rootId = await createDriveFolder(trace, accessToken, refreshTokenFn, ROOT_FOLDER_NAME);
+  let rootId = await findDriveFolder(trace, ROOT_FOLDER_NAME);
+  if (!rootId) rootId = await createDriveFolder(trace, ROOT_FOLDER_NAME);
   if (!rootId) return null;
-  let userId = await findDriveFolder(trace, accessToken, refreshTokenFn, userEmail, rootId);
-  if (!userId) userId = await createDriveFolder(trace, accessToken, refreshTokenFn, userEmail, rootId);
+  let userId = await findDriveFolder(trace, userEmail, rootId);
+  if (!userId) userId = await createDriveFolder(trace, userEmail, rootId);
   return userId;
 }
 
 export async function createLogbookFolder(
-  trace: TraceContext, accessToken: string, refreshTokenFn: () => Promise<string | null>,
+  trace: TraceContext,
   userRootFolderId: string, logbookTitle: string
 ): Promise<string | null> {
-  return createDriveFolder(trace, accessToken, refreshTokenFn, sanitizeFileName(logbookTitle), userRootFolderId);
+  return createDriveFolder(trace, sanitizeFileName(logbookTitle), userRootFolderId);
 }
 
 // ─────────────────────────────────────
@@ -378,20 +366,20 @@ export async function createLogbookFolder(
  * Returns the new user root folder ID.
  */
 async function repairRootFolder(
-  trace: TraceContext, accessToken: string, refreshTokenFn: () => Promise<string | null>,
+  trace: TraceContext,
   userEmail: string
 ): Promise<string | null> {
   trace.log("REPAIR_ROOT", "recreating LogBook.ID/{email} folder chain", { email: userEmail });
 
-  let rootId = await findDriveFolder(trace, accessToken, refreshTokenFn, ROOT_FOLDER_NAME);
-  if (!rootId) rootId = await createDriveFolder(trace, accessToken, refreshTokenFn, ROOT_FOLDER_NAME);
+  let rootId = await findDriveFolder(trace, ROOT_FOLDER_NAME);
+  if (!rootId) rootId = await createDriveFolder(trace, ROOT_FOLDER_NAME);
   if (!rootId) {
     trace.error("REPAIR_ROOT", "cannot create LogBook.ID root folder");
     return null;
   }
 
-  let userId = await findDriveFolder(trace, accessToken, refreshTokenFn, userEmail, rootId);
-  if (!userId) userId = await createDriveFolder(trace, accessToken, refreshTokenFn, userEmail, rootId);
+  let userId = await findDriveFolder(trace, userEmail, rootId);
+  if (!userId) userId = await createDriveFolder(trace, userEmail, rootId);
   if (!userId) {
     trace.error("REPAIR_ROOT", "cannot create user folder");
     return null;
@@ -415,7 +403,7 @@ async function repairRootFolder(
  *   4. Create {logbookId} under logbookidImage
  */
 async function resolvePhotoFolder(
-  trace: TraceContext, accessToken: string, refreshTokenFn: () => Promise<string | null>,
+  trace: TraceContext,
   userRootFolderId: string, logbookId: string, userEmail: string
 ): Promise<{ folderId: string | null; error?: DriveError; newRootId?: string }> {
   const verifyKey = CACHE_PREFIX.VERIFIED_ROOT + userRootFolderId;
@@ -423,7 +411,7 @@ async function resolvePhotoFolder(
 
   if (sharedCache.get(verifyKey) !== "verified") {
     trace.log("RESOLVE_PHOTO_FOLDER", "verifying user root folder");
-    const v = await verifyDriveFolderId(trace, accessToken, refreshTokenFn, userRootFolderId);
+    const v = await verifyDriveFolderId(trace, userRootFolderId);
     if (!v) {
       trace.warn("RESOLVE_PHOTO_FOLDER", "stored root id returned 404 — stale or deleted");
       sharedCache.set(verifyKey, null);
@@ -440,7 +428,7 @@ async function resolvePhotoFolder(
 
   if (imageId === undefined || imageId === null) {
     // Try parent-constrained search first (fast path)
-    imageId = await findDriveFolder(trace, accessToken, refreshTokenFn, IMAGE_ROOT_NAME, userRootFolderId);
+    imageId = await findDriveFolder(trace, IMAGE_ROOT_NAME, userRootFolderId);
 
     // === CACHE DEADLOCK FIX ===
     // If root is cached as "verified" but downstream operations fail,
@@ -448,7 +436,7 @@ async function resolvePhotoFolder(
     if (!imageId && !rootIsStale && sharedCache.get(verifyKey) === "verified") {
       trace.warn("RESOLVE_PHOTO_FOLDER", "imageRoot not found under cached-valid root — cache may be stale. Forcing revalidation...");
       sharedCache.del(verifyKey);
-      const v = await verifyDriveFolderId(trace, accessToken, refreshTokenFn, userRootFolderId);
+      const v = await verifyDriveFolderId(trace, userRootFolderId);
       if (!v) {
         trace.warn("RESOLVE_PHOTO_FOLDER", "revalidation confirmed: root is stale. Deleting imageRoot cache...");
         rootIsStale = true;
@@ -464,20 +452,20 @@ async function resolvePhotoFolder(
     // genuinely doesn't exist under this root — just create it.
     if (!imageId && rootIsStale) {
       trace.log("RESOLVE_PHOTO_FOLDER", "logbookidImage not found under parent (stale root), trying global search...");
-      imageId = await findDriveFolderGlobal(trace, accessToken, refreshTokenFn, IMAGE_ROOT_NAME);
+      imageId = await findDriveFolderGlobal(trace, IMAGE_ROOT_NAME);
     }
 
     if (!imageId && rootIsStale) {
       // Root is stale and logbookidImage doesn't exist anywhere — repair the chain
       trace.log("RESOLVE_PHOTO_FOLDER", "repairing root folder via userEmail...");
-      const newRootId = await repairRootFolder(trace, accessToken, refreshTokenFn, userEmail);
+      const newRootId = await repairRootFolder(trace, userEmail);
       if (newRootId) {
         trace.log("RESOLVE_PHOTO_FOLDER", "root repaired, creating logbookidImage under new root", { newRootId });
-        imageId = await createDriveFolder(trace, accessToken, refreshTokenFn, IMAGE_ROOT_NAME, newRootId);
+        imageId = await createDriveFolder(trace, IMAGE_ROOT_NAME, newRootId);
         if (imageId) {
           // Update cache with new root ID
           sharedCache.set(verifyKey, "verified");
-          return resolvePhotoFolder(trace, accessToken, refreshTokenFn, newRootId, logbookId, userEmail);
+          return resolvePhotoFolder(trace, newRootId, logbookId, userEmail);
         }
       }
     }
@@ -485,7 +473,7 @@ async function resolvePhotoFolder(
     if (!imageId) {
       // Last attempt: create under stored root (even if stale, might work)
       trace.log("RESOLVE_PHOTO_FOLDER", "creating logbookidImage under stored root...");
-      imageId = await createDriveFolder(trace, accessToken, refreshTokenFn, IMAGE_ROOT_NAME, userRootFolderId);
+      imageId = await createDriveFolder(trace, IMAGE_ROOT_NAME, userRootFolderId);
     }
 
     if (!imageId) {
@@ -515,16 +503,16 @@ async function resolvePhotoFolder(
   }
 
   const safe = sanitizeFolderName(logbookId);
-  let folderId = await findDriveFolder(trace, accessToken, refreshTokenFn, safe, imageId);
+  let folderId = await findDriveFolder(trace, safe, imageId);
 
   if (!folderId) {
     trace.log("RESOLVE_PHOTO_FOLDER", "not found under image root, trying global search...");
-    folderId = await findDriveFolderGlobal(trace, accessToken, refreshTokenFn, safe);
+    folderId = await findDriveFolderGlobal(trace, safe);
   }
 
   if (!folderId) {
     trace.log("RESOLVE_PHOTO_FOLDER", "creating logbook folder", { safe });
-    folderId = await createDriveFolder(trace, accessToken, refreshTokenFn, safe, imageId);
+    folderId = await createDriveFolder(trace, safe, imageId);
   }
 
   if (folderId) {
@@ -548,7 +536,7 @@ async function resolvePhotoFolder(
 //  MAIN UPLOAD — v2
 // ─────────────────────────────────────
 export async function uploadFileToActivityFolder(params: UploadFileParams): Promise<UploadFileResult | null> {
-  const { trace, accessToken, refreshToken, fileBuffer, fileName, mimeType, userRootFolderId, logbookId, userEmail } = params;
+  const { trace, fileBuffer, fileName, mimeType, userRootFolderId, logbookId, userEmail } = params;
 
   trace.log("UPLOAD_START", "begin upload", { fileName, mimeType, size: fileBuffer.byteLength, logbookId });
 
@@ -563,7 +551,7 @@ export async function uploadFileToActivityFolder(params: UploadFileParams): Prom
     return null;
   }
 
-  const folderResult = await resolvePhotoFolder(trace, accessToken, refreshToken, userRootFolderId, logbookId, userEmail);
+  const folderResult = await resolvePhotoFolder(trace, userRootFolderId, logbookId, userEmail);
   if (!folderResult.folderId) {
     trace.error("RESOLVE", "failed to resolve folder", { logbookId });
     return null;
@@ -589,7 +577,8 @@ export async function uploadFileToActivityFolder(params: UploadFileParams): Prom
   trace.log("MULTIPART", "body assembled", { totalBytes: totalLen });
 
   // Upload with retry + token refresh
-  let currentToken = accessToken;
+  let currentToken = await getServiceAccountToken();
+  if (!currentToken) return null;
   let uploadOk = false;
   let responseData: Record<string, unknown> = {};
 
@@ -635,7 +624,7 @@ export async function uploadFileToActivityFolder(params: UploadFileParams): Prom
     // 401 → refresh token once
     if (response.status === 401 && attempt === 0) {
       trace.warn("UPLOAD", "Drive returned 401 — refreshing token...");
-      const newToken = await refreshToken();
+      const newToken = await getServiceAccountToken();
       if (newToken) {
         trace.log("UPLOAD", "token refreshed, retrying...");
         currentToken = newToken;
@@ -709,8 +698,6 @@ export async function uploadFileToActivityFolder(params: UploadFileParams): Prom
  */
 export async function convertDocxToPdf(
   trace: TraceContext,
-  accessToken: string,
-  refreshTokenFn: () => Promise<string | null>,
   docxBuffer: Buffer
 ): Promise<Buffer | null> {
   trace.log("CONVERT_PDF_START", "Uploading temporary DOCX to Drive...");
@@ -742,8 +729,6 @@ export async function convertDocxToPdf(
       "Content-Length": totalLen.toString(),
     },
     body,
-    accessToken,
-    refreshToken: refreshTokenFn,
   });
 
   if (!uploadResult.ok) {
@@ -762,7 +747,8 @@ export async function convertDocxToPdf(
 
   const exportUrl = `${DRIVE_API_BASE}/files/${fileId}/export?mimeType=application/pdf`;
   
-  let currentToken = accessToken;
+  let currentToken = await getServiceAccountToken();
+  if (!currentToken) return null;
   let pdfBuffer: Buffer | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -780,7 +766,7 @@ export async function convertDocxToPdf(
 
       if (response.status === 401 && attempt === 0) {
         trace.warn("CONVERT_PDF_EXPORT", "401 during export, refreshing token...");
-        const newToken = await refreshTokenFn();
+        const newToken = await getServiceAccountToken();
         if (newToken) {
           currentToken = newToken;
           continue;
@@ -810,7 +796,7 @@ export async function convertDocxToPdf(
   }
 
   trace.log("CONVERT_PDF_CLEANUP", "Deleting temporary Google Doc...", { fileId });
-  await deleteDriveFile(trace, currentToken, refreshTokenFn, fileId);
+  await deleteDriveFile(trace, fileId);
 
   return pdfBuffer;
 }

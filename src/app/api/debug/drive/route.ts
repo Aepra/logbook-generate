@@ -52,14 +52,14 @@ export async function GET(request: NextRequest) {
 
   // Mode 1: Get file metadata by Drive fileId
   if (fileIdParam) {
-    const fileMeta = await getDriveFileMeta(trace, accessToken, noopRefresh, fileIdParam);
+    const fileMeta = await getDriveFileMeta(trace,  fileIdParam);
     if (!fileMeta) {
       result.file = null;
       result.error = "File not found in Drive or access denied";
     } else {
       result.file = fileMeta;
       // Build path chain
-      const chain = await buildFolderPathChain(trace, accessToken, noopRefresh, fileIdParam);
+      const chain = await buildFolderPathChain(trace,  fileIdParam);
       result.filePath = chain;
     }
     return NextResponse.json(result);
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
 
   // Mode 2: List contents of a specific Drive folder
   if (folderId) {
-    const folderVerify = await verifyDriveFolderId(trace, accessToken, noopRefresh, folderId);
+    const folderVerify = await verifyDriveFolderId(trace,  folderId);
     result.folderCheck = folderVerify ? {
       valid: true,
       name: folderVerify.name,
@@ -78,12 +78,12 @@ export async function GET(request: NextRequest) {
       error: "Not a valid Drive folder ID",
     };
 
-    const contents = await listDriveFolderContents(trace, accessToken, noopRefresh, folderId);
+    const contents = await listDriveFolderContents(trace,  folderId);
     result.contents = contents;
     result.totalItems = contents.length;
 
     // Build path for the folder itself
-    const chain = await buildFolderPathChain(trace, accessToken, noopRefresh, folderId);
+    const chain = await buildFolderPathChain(trace,  folderId);
     result.folderPath = chain;
 
     return NextResponse.json(result);
@@ -125,7 +125,7 @@ export async function GET(request: NextRequest) {
     result.storedFolderId = storedFolderId;
 
     if (storedFolderId) {
-      const folderCheck = await verifyDriveFolderId(trace, accessToken, noopRefresh, storedFolderId);
+      const folderCheck = await verifyDriveFolderId(trace,  storedFolderId);
       result.folderIdValidInDrive = !!folderCheck;
 
       if (folderCheck) {
@@ -133,11 +133,11 @@ export async function GET(request: NextRequest) {
         result.folderDriveParents = folderCheck.parents;
 
         // Build the full path chain from root
-        const chain = await buildFolderPathChain(trace, accessToken, noopRefresh, storedFolderId);
+        const chain = await buildFolderPathChain(trace,  storedFolderId);
         result.folderPathChain = chain;
 
         // List all contents recursively
-        const userFolderContents = await listDriveFolderContents(trace, accessToken, noopRefresh, storedFolderId);
+        const userFolderContents = await listDriveFolderContents(trace,  storedFolderId);
         result.userFolderContents = userFolderContents;
         result.totalFiles = userFolderContents.length;
 
@@ -145,7 +145,7 @@ export async function GET(request: NextRequest) {
         if (verify && userFolderContents.length > 0) {
           const fileVerifications: Array<Record<string, unknown>> = [];
           for (const file of userFolderContents) {
-            const meta = await getDriveFileMeta(trace, accessToken, noopRefresh, file.id);
+            const meta = await getDriveFileMeta(trace,  file.id);
             fileVerifications.push({
               id: file.id,
               name: file.name,
@@ -163,7 +163,7 @@ export async function GET(request: NextRequest) {
         result.rootFolderId = rootFolderId;
 
         if (rootFolderId) {
-          const rootContents = await listDriveFolderContents(trace, accessToken, noopRefresh, rootFolderId);
+          const rootContents = await listDriveFolderContents(trace,  rootFolderId);
           result.rootLevelFolders = rootContents.map(f => ({
             id: f.id,
             name: f.name,
@@ -192,7 +192,7 @@ export async function GET(request: NextRequest) {
     .single();
 
   if (userData?.drive_folder_id) {
-    const folderCheck = await verifyDriveFolderId(trace, accessToken, noopRefresh, userData.drive_folder_id);
+    const folderCheck = await verifyDriveFolderId(trace,  userData.drive_folder_id);
     result.yourDriveFolder = {
       storedId: userData.drive_folder_id,
       validInDrive: !!folderCheck,

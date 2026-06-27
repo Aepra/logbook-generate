@@ -7,6 +7,7 @@
 
 const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
 const DOCS_API_BASE = "https://docs.googleapis.com/v1";
+import { getServiceAccountToken } from "@/lib/google-service-account";
 
 export interface DocRequest {
   accessToken: string;
@@ -39,6 +40,12 @@ async function createEmptyDoc(
     if (parentFolderId) {
       body.parents = [parentFolderId];
     }
+
+    const accessToken = await getServiceAccountToken();
+    if (!accessToken) return null;
+
+    const accessToken = await getServiceAccountToken();
+    if (!accessToken) return false;
 
     const response = await fetch(`${DRIVE_API_BASE}/files`, {
       method: "POST",
