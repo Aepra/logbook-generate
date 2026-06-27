@@ -27,25 +27,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Get access token from session
-    
-
-    if (isTokenStale && !hasRefreshToken) {
-      console.error("[EXPORT] FAIL: token expired, no refresh");
-      return NextResponse.json(
-        {
-          error: "Sesi Google Drive telah berakhir. Silakan logout dan login ulang.",
-          code: "TOKEN_EXPIRED_NO_REFRESH",
-        },
-        { status: 401 }
-      );
-    }
-
     // Delegate to export service — no business logic here
     const result = await exportLogbookToGoogleDocs(
       logbook_id,
-      userId,
-      accessToken
+      userId
     );
 
     if (!result.success) {

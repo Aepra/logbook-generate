@@ -191,7 +191,7 @@ export async function uploadActivityPhoto(
     trace.log("UPLOAD", "Step 3: fetching user from DB", { userId });
     const { data: userData, error: userError } = await supabaseAdmin
       .from("users")
-      .select("drive_folder_id, email")
+      .select("drive_folder_id, email, name")
       .eq("id", userId)
       .single();
 
@@ -211,20 +211,19 @@ export async function uploadActivityPhoto(
       };
     }
 
-    trace.log("UPLOAD", "Step 3a: user data OK", { driveFolderId: userData.drive_folder_id?.substring(0, 10) + "...", email: userData.email });
+    trace.log("UPLOAD", "Step 3a: user data OK", { driveFolderId: userData.drive_folder_id?.substring(0, 10) + "...", email: userData.email, name: userData.name });
 
     // ── Step 4: Upload file to Drive (logbookId as folder key) ──
     trace.log("UPLOAD", "Step 4: uploading to Drive", { fileName, logbookId });
+    const userName = userData.name || userData.email?.split("@")[0] || "UnknownUser";
     const uploadResult = await uploadFileToActivityFolder({
       trace,
-      accessToken,
-      refreshToken,
       fileBuffer,
       fileName,
       mimeType,
       userRootFolderId: userData.drive_folder_id,
       logbookId,
-      userEmail: userData.email, // v2: pass email for Drive folder repair
+      userName, // v2: pass name for Drive folder repair
     });
 
     if (!uploadResult) {

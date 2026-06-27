@@ -68,8 +68,8 @@ export interface UploadFileParams {
   mimeType: string;
   userRootFolderId: string;
   logbookId: string;
-  /** User email for repairing stale/deleted root Drive folder */
-  userEmail: string;
+  /** User name for repairing stale/deleted root Drive folder */
+  userName: string;
 }
 
 export interface UploadFileResult {

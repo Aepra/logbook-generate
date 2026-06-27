@@ -10,7 +10,6 @@ const DOCS_API_BASE = "https://docs.googleapis.com/v1";
 import { getServiceAccountToken } from "@/lib/google-service-account";
 
 export interface DocRequest {
-  accessToken: string;
   title: string;
   paragraphs: DocParagraph[];
 }

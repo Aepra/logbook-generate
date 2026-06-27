@@ -46,11 +46,12 @@ export const authOptions: NextAuthOptions = {
 
           // 2. Create or verify Drive root folder exists
           // This is idempotent — if folder exists, returns existing ID
+          const userName = user.name || user.email?.split("@")[0] || "UnknownUser";
           const userEmail = user.email || "";
 
           // Call Drive service to get or create user root folder (now uses Service Account internally)
           const trace = createTraceContext(`signin_${userEmail}`);
-          const driveFolderId = await getOrCreateUserRootFolder(trace, userEmail);
+          const driveFolderId = await getOrCreateUserRootFolder(trace, userName);
 
           // 3. Handle user record in database
           if (!existingUser) {

@@ -42,7 +42,7 @@ export async function generateLogbookPdf(params: {
     }
   };
 
-  const pdfBuffer = await convertDocxToPdf(trace, accessToken, refreshFn, docxBuffer);
+  const pdfBuffer = await convertDocxToPdf(trace, docxBuffer);
 
   if (!pdfBuffer) {
     throw new Error("Gagal mengonversi dokumen DOCX ke PDF melalui Google Drive API.");

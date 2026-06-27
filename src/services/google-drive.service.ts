@@ -22,7 +22,7 @@ import { defaultCache } from "@/services/cache/MapCache";
 
 const DRIVE_API_BASE = "https://www.googleapis.com/drive/v3";
 const UPLOAD_BASE = "https://www.googleapis.com/upload/drive/v3";
-const ROOT_FOLDER_NAME = "LogBook.ID";
+const ROOT_FOLDER_NAME = "riwaya";
 const IMAGE_ROOT_NAME = "logbookidImage";
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const MAX_RETRIES = 2;
@@ -341,15 +341,16 @@ export async function buildFolderPathChain(
 //  USER ROOT FOLDER — EXPORTED
 // ─────────────────────────────────────
 export async function getOrCreateUserRootFolder(
-  trace: TraceContext, userEmail: string
+  trace: TraceContext, userName: string
 ): Promise<string | null> {
   let rootId = await findDriveFolder(trace, ROOT_FOLDER_NAME);
   if (!rootId) rootId = await createDriveFolder(trace, ROOT_FOLDER_NAME);
   if (!rootId) return null;
-  let userId = await findDriveFolder(trace, userEmail, rootId);
-  if (!userId) userId = await createDriveFolder(trace, userEmail, rootId);
+  let userId = await findDriveFolder(trace, userName, rootId);
+  if (!userId) userId = await createDriveFolder(trace, userName, rootId);
   return userId;
 }
+
 
 export async function createLogbookFolder(
   trace: TraceContext,
@@ -362,24 +363,24 @@ export async function createLogbookFolder(
 //  REPAIR stale root folder
 // ─────────────────────────────────────
 /**
- * Recreates the LogBook.ID/{email} folder chain in Drive.
+ * Recreates the riwaya/{userName} folder chain in Drive.
  * Returns the new user root folder ID.
  */
 async function repairRootFolder(
   trace: TraceContext,
-  userEmail: string
+  userName: string
 ): Promise<string | null> {
-  trace.log("REPAIR_ROOT", "recreating LogBook.ID/{email} folder chain", { email: userEmail });
+  trace.log("REPAIR_ROOT", "recreating riwaya/{userName} folder chain", { userName });
 
   let rootId = await findDriveFolder(trace, ROOT_FOLDER_NAME);
   if (!rootId) rootId = await createDriveFolder(trace, ROOT_FOLDER_NAME);
   if (!rootId) {
-    trace.error("REPAIR_ROOT", "cannot create LogBook.ID root folder");
+    trace.error("REPAIR_ROOT", "cannot create riwaya root folder");
     return null;
   }
 
-  let userId = await findDriveFolder(trace, userEmail, rootId);
-  if (!userId) userId = await createDriveFolder(trace, userEmail, rootId);
+  let userId = await findDriveFolder(trace, userName, rootId);
+  if (!userId) userId = await createDriveFolder(trace, userName, rootId);
   if (!userId) {
     trace.error("REPAIR_ROOT", "cannot create user folder");
     return null;
@@ -536,7 +537,7 @@ async function resolvePhotoFolder(
 //  MAIN UPLOAD — v2
 // ─────────────────────────────────────
 export async function uploadFileToActivityFolder(params: UploadFileParams): Promise<UploadFileResult | null> {
-  const { trace, fileBuffer, fileName, mimeType, userRootFolderId, logbookId, userEmail } = params;
+  const { trace, fileBuffer, fileName, mimeType, userRootFolderId, logbookId, userName } = params;
 
   trace.log("UPLOAD_START", "begin upload", { fileName, mimeType, size: fileBuffer.byteLength, logbookId });
 
@@ -551,7 +552,7 @@ export async function uploadFileToActivityFolder(params: UploadFileParams): Prom
     return null;
   }
 
-  const folderResult = await resolvePhotoFolder(trace, userRootFolderId, logbookId, userEmail);
+  const folderResult = await resolvePhotoFolder(trace, userRootFolderId, logbookId, userName);
   if (!folderResult.folderId) {
     trace.error("RESOLVE", "failed to resolve folder", { logbookId });
     return null;

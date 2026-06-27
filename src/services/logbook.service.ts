@@ -1,6 +1,4 @@
 import { supabaseAdmin } from "@/lib/supabase-server";
-import { createLogbookFolder } from "@/services/google-drive.service";
-import { createTraceContext } from "@/types/drive";
 
 export type LogbookType = "pkl" | "kkn" | "other";
 
@@ -45,9 +43,7 @@ export interface Logbook {
  */
 export async function createLogbook(
   userId: string,
-  input: CreateLogbookInput,
-  driveAccessToken?: string | null,
-  userRootFolderId?: string | null
+  input: CreateLogbookInput
 ): Promise<Logbook> {
   // 1. Insert logbook into database first
   const insertData: Record<string, unknown> = {
@@ -71,44 +67,6 @@ export async function createLogbook(
   }
 
   const logbook = data as Logbook;
-
-  // 2. Try to create Drive folder (non-blocking)
-  if (driveAccessToken && userRootFolderId) {
-    try {
-      const trace = createTraceContext(`createLogbook_${userId.substring(0, 8)}`);
-      const noopRefresh = async () => null; // fresh token from session
-      const folderId = await createLogbookFolder(
-        trace,
-        driveAccessToken,
-        noopRefresh,
-        userRootFolderId,
-        input.title
-      );
-
-      if (folderId) {
-        // Update logbook with drive_folder_id
-        const { error: updateError } = await supabaseAdmin
-          .from("logbooks")
-          .update({ drive_folder_id: folderId })
-          .eq("id", logbook.id);
-
-        if (updateError) {
-          console.error(
-            "[Logbook Service] Gagal update drive_folder_id:",
-            updateError.message
-          );
-        } else {
-          logbook.drive_folder_id = folderId;
-        }
-      }
-    } catch (driveError) {
-      // Non-blocking: Drive failure is logged but does NOT break the flow
-      console.error(
-        "[Logbook Service] Drive folder creation skipped (non-blocking):",
-        driveError
-      );
-    }
-  }
 
   return logbook;
 }

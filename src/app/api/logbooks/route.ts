@@ -55,20 +55,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "User not found" }, { status: 404 });
     }
 
-    // Get Drive access token and user root folder ID for Drive integration
-    const accessToken = (session as unknown as { accessToken?: string }).accessToken;
-    let userRootFolderId: string | null = null;
-
-    if (accessToken) {
-      const { data: userData } = await supabaseAdmin
-        .from("users")
-        .select("drive_folder_id")
-        .eq("id", userId)
-        .single();
-
-      userRootFolderId = userData?.drive_folder_id || null;
-    }
-
     const logbook = await createLogbook(
       userId,
       {
@@ -77,9 +63,7 @@ export async function POST(request: NextRequest) {
         type: type || "other",
         start_date: start_date || undefined,
         end_date: end_date || undefined,
-      },
-      accessToken,
-      userRootFolderId
+      }
     );
 
     console.log("[API Logbook] Created logbook:", {

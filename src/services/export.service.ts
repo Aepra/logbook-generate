@@ -38,8 +38,7 @@ export interface ExportResult {
  */
 export async function exportLogbookToGoogleDocs(
   logbookId: string,
-  userId: string,
-  accessToken: string
+  userId: string
 ): Promise<ExportResult> {
   try {
     // Step 1: Fetch logbook (user-scoped validation built into service)
@@ -85,7 +84,6 @@ export async function exportLogbookToGoogleDocs(
 
     // Step 5: Create Google Doc (API call)
     const docUrl = await createDocumentFromParagraphs({
-      accessToken,
       title: `LogBook - ${logbook.title}`,
       paragraphs,
     });
